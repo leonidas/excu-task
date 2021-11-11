@@ -1,55 +1,65 @@
 import * as cdk from "@aws-cdk/core";
 import * as lambda from "@aws-cdk/aws-lambda";
 import * as iam from "@aws-cdk/aws-iam";
+import * as dynamodb from "@aws-cdk/aws-dynamodb";
 import * as apigateway from "@aws-cdk/aws-apigateway";
-import { PolicyDocument, PolicyStatement } from "@aws-cdk/aws-iam";
 
-const EXCU_DYNAMO_TABLE_NAME = "ExcuTable";
-const EXCU_DYNAMO_TABLE_ARN =
-  "arn:aws:dynamodb:eu-north-1:886218730506:table/ExcuTable";
+import { PolicyStatement } from "@aws-cdk/aws-iam";
+
+// const EXCU_DYNAMO_TABLE_NAME = "ExcuTable";
+// const EXCU_DYNAMO_TABLE_ARN =
+//   "arn:aws:dynamodb:eu-north-1:886218730506:table/ExcuTable";
 const namePrefix = "TEST";
 
 export class DeployStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    const lambdaRole = new iam.Role(this, "ExcuLambdaRole", {
-      roleName: `${namePrefix}-excu-lambda-role`,
-      assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
-      inlinePolicies: {
-        DynamoAccess: new PolicyDocument({
-          statements: [
-            new PolicyStatement({
-              actions: [
-                // "dynamodb:DeleteItem",
-                "dynamodb:GetItem",
-                // "dynamodb:PutItem",
-                "dynamodb:Query",
-                "dynamodb:Scan",
-                // "dynamodb:UpdateItem",
-                // "dynamodb:BatchWriteItem",
-                "dynamodb:DescribeTable",
-              ],
-              resources: [EXCU_DYNAMO_TABLE_ARN],
-              effect: iam.Effect.ALLOW,
-            }),
-          ],
-        }),
-      },
+    const table = new dynamodb.Table(this, "excutable", {
+      tableName: "excutable",
+      partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
     });
 
     // api lambda
-    const apiLambda = new lambda.Function(this, "ExcuApiLambda", {
+    const apiGetLambda = new lambda.Function(this, "ExcuApiGetLambda", {
       runtime: lambda.Runtime.NODEJS_12_X,
       code: lambda.Code.fromAsset("../src"),
-      handler: "index.apiHandler",
-      functionName: `${namePrefix}-excu-task-api`,
+      handler: "index.apiGetHandler",
+      functionName: `${namePrefix}-excu-task-api-get`,
       timeout: cdk.Duration.seconds(90),
-      role: lambdaRole,
       environment: {
-        TABLE_NAME: EXCU_DYNAMO_TABLE_NAME,
+        TABLE_NAME: table.tableName,
       },
     });
+
+    const apiPostLambda = new lambda.Function(this, "ExcuApiPostLambda", {
+      runtime: lambda.Runtime.NODEJS_12_X,
+      code: lambda.Code.fromAsset("../src"),
+      handler: "index.apiPostHandler",
+      functionName: `${namePrefix}-excu-task-api-post`,
+      timeout: cdk.Duration.seconds(90),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
+    });
+
+    const dynamoPolicy = new PolicyStatement({
+      actions: [
+        "dynamodb:DeleteItem",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:UpdateItem",
+        "dynamodb:DescribeTable",
+      ],
+      resources: [table.tableArn],
+      effect: iam.Effect.ALLOW,
+    });
+
+    apiGetLambda.addToRolePolicy(dynamoPolicy);
+    apiPostLambda.addToRolePolicy(dynamoPolicy);
 
     // staticHandler
     const staticLambda = new lambda.Function(this, "ExcuStaticLambda", {
@@ -63,15 +73,18 @@ export class DeployStack extends cdk.Stack {
     const api = new apigateway.RestApi(this, "ExcuApi", {
       restApiName: `${namePrefix}-ExcuApi`,
     });
-    const apiIntegration = new apigateway.LambdaIntegration(apiLambda, {});
+    const getIntegration = new apigateway.LambdaIntegration(apiGetLambda, {});
+    const postIntegration = new apigateway.LambdaIntegration(apiPostLambda, {});
     const apiPath = api.root.addResource("api");
-    apiPath.addMethod("GET", apiIntegration);
+    const proxyPath = apiPath.addResource("{name}");
+    proxyPath.addMethod("GET", getIntegration);
+    proxyPath.addMethod("POST", postIntegration);
 
     const staticIntegration = new apigateway.LambdaIntegration(
       staticLambda,
       {}
     );
     const staticPath = api.root.addResource("static");
-    staticPath.addMethod("GET", staticIntegration);
+    staticPath.addMethod("GET", staticIntegration, {});
   }
 }

@@ -1,19 +1,44 @@
-import { APIGatewayProxyEvent, Context } from "aws-lambda";
+import {
+  APIGatewayProxyEvent,
+  APIGatewayProxyResult,
+  Context,
+} from "aws-lambda";
+import { putItem, queryItem } from "./dynamo";
 
-export const staticHandler = (event: APIGatewayProxyEvent, _ctx: Context) => {
-  event.body;
+/**
+ */
+export const apiGetHandler = async (
+  event: APIGatewayProxyEvent,
+  _ctx: Context
+): Promise<APIGatewayProxyResult> => {
+  console.log(event.pathParameters);
+  const name = event.pathParameters!.name!;
+  const items = await queryItem(name);
+
+  console.log(items);
 
   return {
     statusCode: 200,
-    body: "<html><body><h1>TEST JEE</h1></body></html>",
+    body: JSON.stringify({
+      items: items,
+    }),
   };
 };
 
-export const apiHandler = (event: APIGatewayProxyEvent, _ctx: Context) => {
-  event.body;
+export const apiPostHandler = async (
+  event: APIGatewayProxyEvent,
+  _ctx: Context
+): Promise<APIGatewayProxyResult> => {
+  const body = JSON.parse(event.body || "{}");
+
+  const name = event.pathParameters!.name!;
+
+  await putItem(name, new Date().toISOString(), body);
 
   return {
     statusCode: 200,
-    body: "jee",
+    body: JSON.stringify({
+      message: `OK`,
+    }),
   };
 };

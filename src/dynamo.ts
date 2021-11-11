@@ -7,8 +7,8 @@ const docClient = new DynamoDB.DocumentClient({
 export const queryItem = async (primaryKey: string) => {
   const { Items } = await docClient
     .query({
-      TableName: process.env.TABLE_NAME,
-      KeyConditionExpression: "PK: :pk",
+      TableName: process.env.TABLE_NAME!,
+      KeyConditionExpression: "PK = :pk",
       ExpressionAttributeValues: {
         ":pk": primaryKey,
       },
@@ -17,14 +17,19 @@ export const queryItem = async (primaryKey: string) => {
   return Items;
 };
 
-// export const putItem = async (primaryKey: string, body: any) => {
-//   return docClient
-//     .put({
-//       TableName: process.env.TABLE_NAME,
-//       Item: {
-//         ...body,
-//         PK: primaryKey,
-//       },
-//     })
-//     .promise();
-// };
+export const putItem = async (
+  primaryKey: string,
+  sortKey: string,
+  body: any
+) => {
+  return docClient
+    .put({
+      TableName: process.env.TABLE_NAME!,
+      Item: {
+        ...body,
+        PK: primaryKey,
+        SK: sortKey,
+      },
+    })
+    .promise();
+};
