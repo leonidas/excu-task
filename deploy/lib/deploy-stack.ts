@@ -1,32 +1,25 @@
 import * as cdk from "@aws-cdk/core";
 import * as lambda from "@aws-cdk/aws-lambda";
-import * as iam from "@aws-cdk/aws-iam";
 import * as dynamodb from "@aws-cdk/aws-dynamodb";
 import * as apigateway from "@aws-cdk/aws-apigateway";
-
-import { PolicyStatement } from "@aws-cdk/aws-iam";
-
-// const EXCU_DYNAMO_TABLE_NAME = "ExcuTable";
-// const EXCU_DYNAMO_TABLE_ARN =
-//   "arn:aws:dynamodb:eu-north-1:886218730506:table/ExcuTable";
-const namePrefix = "TEST";
 
 export class DeployStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+    // Dynamodb table with string partition key and string sort key
     const table = new dynamodb.Table(this, "excutable", {
       tableName: "excutable",
       partitionKey: { name: "PK", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "SK", type: dynamodb.AttributeType.STRING },
     });
 
-    // api lambda
+    // api lambdas
     const apiGetLambda = new lambda.Function(this, "ExcuApiGetLambda", {
       runtime: lambda.Runtime.NODEJS_12_X,
-      code: lambda.Code.fromAsset("../src"),
+      code: lambda.Code.fromAsset("../dist/src"),
       handler: "index.apiGetHandler",
-      functionName: `${namePrefix}-excu-task-api-get`,
+      functionName: `excu-task-api-get`,
       timeout: cdk.Duration.seconds(90),
       environment: {
         TABLE_NAME: table.tableName,
@@ -35,56 +28,42 @@ export class DeployStack extends cdk.Stack {
 
     const apiPostLambda = new lambda.Function(this, "ExcuApiPostLambda", {
       runtime: lambda.Runtime.NODEJS_12_X,
-      code: lambda.Code.fromAsset("../src"),
+      code: lambda.Code.fromAsset("../dist/src"),
       handler: "index.apiPostHandler",
-      functionName: `${namePrefix}-excu-task-api-post`,
+      functionName: `excu-task-api-post`,
       timeout: cdk.Duration.seconds(90),
       environment: {
         TABLE_NAME: table.tableName,
       },
     });
 
-    const dynamoPolicy = new PolicyStatement({
-      actions: [
-        "dynamodb:DeleteItem",
-        "dynamodb:GetItem",
-        "dynamodb:PutItem",
-        "dynamodb:Query",
-        "dynamodb:Scan",
-        "dynamodb:UpdateItem",
-        "dynamodb:DescribeTable",
-      ],
-      resources: [table.tableArn],
-      effect: iam.Effect.ALLOW,
-    });
+    // Give the lambdas permission to read and write stuff to the dynamo table
+    table.grantReadData(apiGetLambda);
+    table.grantWriteData(apiPostLambda);
 
-    apiGetLambda.addToRolePolicy(dynamoPolicy);
-    apiPostLambda.addToRolePolicy(dynamoPolicy);
-
-    // staticHandler
-    const staticLambda = new lambda.Function(this, "ExcuStaticLambda", {
-      runtime: lambda.Runtime.NODEJS_12_X,
-      code: lambda.Code.fromAsset("../src"),
-      handler: "index.staticHandler",
-      functionName: `${namePrefix}-excu-task-static`,
-      timeout: cdk.Duration.seconds(90),
-    });
-
+    // Apigateway API
     const api = new apigateway.RestApi(this, "ExcuApi", {
-      restApiName: `${namePrefix}-ExcuApi`,
+      restApiName: `ExcuApi`,
     });
-    const getIntegration = new apigateway.LambdaIntegration(apiGetLambda, {});
-    const postIntegration = new apigateway.LambdaIntegration(apiPostLambda, {});
+
+    // Path prefix of the lambda url
     const apiPath = api.root.addResource("api");
+    // This is for the path parameter
     const proxyPath = apiPath.addResource("{name}");
+
+    // the get lambda will respond at GET {apigw url}/api/{your path param}
+    const getIntegration = new apigateway.LambdaIntegration(apiGetLambda, {});
     proxyPath.addMethod("GET", getIntegration);
+
+    // POST handler to the same url
+    const postIntegration = new apigateway.LambdaIntegration(apiPostLambda, {});
     proxyPath.addMethod("POST", postIntegration);
 
-    const staticIntegration = new apigateway.LambdaIntegration(
-      staticLambda,
-      {}
-    );
-    const staticPath = api.root.addResource("static");
-    staticPath.addMethod("GET", staticIntegration, {});
+    new cdk.CfnOutput(this, "ExampleGetCall", {
+      value: `curl ${api.url}api/examplePathParam`,
+    });
+    new cdk.CfnOutput(this, "ExamplePostCall", {
+      value: `curl -X POST ${api.url}api/examplePathParam -d "{\\"message\\":\\"example message\\"}"`,
+    });
   }
 }

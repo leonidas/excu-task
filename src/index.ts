@@ -10,13 +10,22 @@ const docClient = new DynamoDB.DocumentClient({
 });
 
 /**
+ * GET handler, fetches all data for a partition key provided in lambda path parameters
  */
 export const apiGetHandler = async (
   event: APIGatewayProxyEvent,
   _ctx: Context
 ): Promise<APIGatewayProxyResult> => {
-  console.log(event.pathParameters);
-  const name = event.pathParameters!.name!;
+  const name = event.pathParameters?.name;
+
+  if (!name) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: "Path parameter not provided",
+      }),
+    };
+  }
 
   const { Items } = await docClient
     .query({
@@ -38,13 +47,25 @@ export const apiGetHandler = async (
   };
 };
 
+/**
+ * POST handler, puts a new item to dynamodb
+ * partition key provided in path parameters, additional fields in body
+ */
 export const apiPostHandler = async (
   event: APIGatewayProxyEvent,
   _ctx: Context
 ): Promise<APIGatewayProxyResult> => {
   const body = JSON.parse(event.body || "{}");
+  const name = event.pathParameters?.name;
 
-  const name = event.pathParameters!.name!;
+  if (!name) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({
+        message: "Path parameter not provided",
+      }),
+    };
+  }
 
   await docClient
     .put({
